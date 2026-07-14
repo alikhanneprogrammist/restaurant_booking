@@ -83,13 +83,13 @@ export default function TableGrid({
       <table className="w-full border-separate border-spacing-0 text-sm">
         <thead className="sticky top-0 z-20 bg-card">
           <tr>
-            <th className="sticky left-0 z-30 border-b border-r border-border bg-card px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-muted">
+            <th className="sticky left-0 z-30 border-b border-r border-black/[0.06] dark:border-white/[0.08] bg-card px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-muted">
               {t('table')}
             </th>
             {dayList.map((d) => (
               <th
                 key={d.getTime()}
-                className={`min-w-28 border-b border-border px-2 py-2 text-center text-xs font-medium capitalize ${
+                className={`min-w-28 border-b border-black/[0.06] dark:border-white/[0.08] px-2 py-2 text-center text-xs font-medium capitalize ${
                   dayKey(d) === todayKey ? 'text-foreground' : 'text-muted'
                 }`}
               >
@@ -104,14 +104,14 @@ export default function TableGrid({
               <tr>
                 <td
                   colSpan={dayList.length + 1}
-                  className="border-b border-border bg-subtle px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted"
+                  className="border-b border-black/[0.06] dark:border-white/[0.08] bg-subtle px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted"
                 >
                   {t('floor', {n: floor})}
                 </td>
               </tr>
               {tables.map((r) => (
                 <tr key={r.id}>
-                  <td className="sticky left-0 z-10 whitespace-nowrap border-b border-r border-border bg-card px-3 py-1 font-medium">
+                  <td className="sticky left-0 z-10 whitespace-nowrap border-b border-r border-black/[0.06] dark:border-white/[0.08] bg-card px-3 py-1 font-medium">
                     <span
                       className="mr-1.5 inline-block h-2 w-2 rounded-full align-middle"
                       style={{backgroundColor: r.color}}
@@ -123,7 +123,7 @@ export default function TableGrid({
                     const list = cellMap.get(`${r.id}|${dayKey(d)}`) ?? [];
                     const isToday = dayKey(d) === todayKey;
                     return (
-                      <td key={d.getTime()} className={`border-b border-border p-0.5 align-top ${isToday ? 'bg-primary/5' : ''}`}>
+                      <td key={d.getTime()} className={`border-b border-black/[0.06] dark:border-white/[0.08] p-0.5 align-top ${isToday ? 'bg-primary/5' : ''}`}>
                         <div className="flex min-h-12 w-full flex-col gap-0.5">
                           {list.map((b) => {
                             const cancelled = b.status === 'CANCELLED' || b.status === 'NO_SHOW';
