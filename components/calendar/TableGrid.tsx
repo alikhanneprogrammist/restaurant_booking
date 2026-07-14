@@ -2,8 +2,8 @@
 
 import {Fragment, useMemo} from 'react';
 import {useTranslations} from 'next-intl';
-import {toAlmaty} from '@/lib/time';
-import {addDays, fmtDayNum, fmtTime} from '@/lib/calendar';
+import {TIMEZONE, toAlmaty} from '@/lib/time';
+import {addDays, fmtTime} from '@/lib/calendar';
 import type {MockBooking, MockClient, MockResource} from '@/lib/types';
 import {STATUS_BG} from './StatusBadge';
 
@@ -62,6 +62,15 @@ export default function TableGrid({
   const todayKey = dayKey(now);
   const name = (r: MockResource) => (locale === 'kk' ? r.nameKk : r.nameRu);
 
+  // Шапка колонки: «пн · 13 июля» — день недели, число и месяц (Алматы).
+  const fmtDayMonth = (d: Date) =>
+    new Intl.DateTimeFormat(locale === 'kk' ? 'kk-KZ' : 'ru-RU', {
+      timeZone: TIMEZONE,
+      weekday: 'short',
+      day: 'numeric',
+      month: 'long',
+    }).format(d);
+
   // «19:00–23:00»; конец 00:00 = «до конца дня» — показываем только приход.
   const timeLabel = (b: MockBooking) => {
     const start = fmtTime(b.startAt, locale);
@@ -84,7 +93,7 @@ export default function TableGrid({
                   dayKey(d) === todayKey ? 'text-foreground' : 'text-muted'
                 }`}
               >
-                {fmtDayNum(d, locale)}
+                {fmtDayMonth(d)}
               </th>
             ))}
           </tr>
