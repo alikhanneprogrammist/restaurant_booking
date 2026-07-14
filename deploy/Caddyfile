@@ -1,0 +1,31 @@
+# HTTPS для urs.office2020.kz (Caddy сам получает и продлевает
+# сертификат Let's Encrypt — нужны только DNS A-запись на сервер
+# и открытые порты 80/443).
+#
+# Запуск на сервере (из booking/):
+#   docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
+#
+# X-Forwarded-* заголовки для Auth.js Caddy проставляет автоматически.
+
+urs.office2020.kz {
+	reverse_proxy app:3000 {
+		# Реальный IP клиента в доверенный заголовок — на него опирается
+		# rate-limit публичной формы /book (lib/public-actions.ts clientIp).
+		# {remote_host} перезаписывает любой присланный клиентом X-Real-IP.
+		header_up X-Real-IP {remote_host}
+	}
+
+	# Базовые заголовки безопасности (HSTS Caddy добавляет сам на TLS-сайтах).
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}
+
+# Старый поддомен: постоянный редирект, чтобы сохранённые ссылки/QR не умерли.
+# (DNS-запись booking → сервер оставить, пока редирект нужен.)
+booking.office2020.kz {
+	redir https://urs.office2020.kz{uri} permanent
+}

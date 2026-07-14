@@ -1,0 +1,55 @@
+# АСАТУ (ресторан) — локальный/серверный запуск через Docker.
+#   docker compose up -d --build         # поднять БД + приложение (миграции накатятся сами)
+#   docker compose run --rm app npm run db:seed   # один раз залить столы по этажам
+#   docker compose down                  # остановить (данные сохраняются в томе pgdata)
+#
+# Приложение: http://localhost:3001 (порт 3000 занят OFFICE 2020), БД: 127.0.0.1:5433.
+
+services:
+  db:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      # Все креды берутся из booking/.env (POSTGRES_*). Пароль обязателен.
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — set it in booking/.env}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: Asia/Almaty
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # btree_gist (анти-овербукинг) входит в стандартный образ postgres,
+    # расширение включает миграция 20260101000001_booking_no_overlap.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    ports:
+      # Только loopback: снаружи порт БД недоступен (хост-CLI prisma/psql работают через 127.0.0.1).
+      # 5434 — потому что 5432 занят БД OFFICE 2020, а 5433 — сторонним проектом (lynks-assistant).
+      - "127.0.0.1:5434:5432"
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # URL строится из тех же POSTGRES_* (booking/.env), но host=db (внутри сети compose).
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable"
+      # ВАЖНО: секрет ОБЯЗАТЕЛЕН (openssl rand -base64 32). Берётся из .env рядом
+      # с этим файлом или из окружения; если не задан — контейнер не стартует (без дефолта).
+      AUTH_SECRET: "${AUTH_SECRET:?AUTH_SECRET is required — set it in booking/.env or env}"
+      # Bootstrap первого администратора (см. scripts/ensure-admin.ts). Не обязательны:
+      # если пусты — шаг ensure-admin пропускается. Пароль применяется только при создании.
+      ADMIN_PHONE: "${ADMIN_PHONE:-}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
+      ADMIN_NAME: "${ADMIN_NAME:-}"
+      TZ: Asia/Almaty
+    ports:
+      # 3001 снаружи — 3000 занят OFFICE 2020; внутри контейнера Next.js остаётся на 3000.
+      - "3001:3000"
+
+volumes:
+  pgdata:
