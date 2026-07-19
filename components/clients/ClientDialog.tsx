@@ -7,6 +7,7 @@ import {toInputValue, parseInputDate} from '@/lib/birthdays';
 import {formatPhoneDraft} from '@/lib/phone';
 import type {MockClient} from '@/lib/types';
 import {dialogField, dialogLabel} from '@/lib/ui';
+import TagsField from './TagsField';
 
 export default function ClientDialog({
   mode, client, onClose, onSaved,
@@ -62,16 +63,16 @@ export default function ClientDialog({
           </label>
           <label className={label}>
             {t('phone')}
-            <input className={field} type="tel" value={phone} onChange={(e) => setPhone(formatPhoneDraft(e.target.value))} placeholder="+7 700 000 00 00" />
+            <input className={field} type="tel" value={phone} onChange={(e) => setPhone(formatPhoneDraft(e.target.value, phone))} placeholder="+7 700 000 00 00" />
           </label>
           <label className={label}>
             {t('note')}
             <textarea className={field} rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
           </label>
-          <label className={label}>
+          <div className={label}>
             {t('tags')}
-            <input className={field} value={tags} onChange={(e) => setTags(e.target.value)} placeholder="VIP, постоянный" />
-          </label>
+            <TagsField value={tags} onChange={setTags} />
+          </div>
           <label className={label}>
             {t('dateOfBirth')}
             <input type="date" className={field} value={dob} onChange={(e) => setDob(e.target.value)} />

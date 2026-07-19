@@ -8,6 +8,7 @@ import {dialogField, dialogLabel} from '@/lib/ui';
 import type {MockBooking, MockClient, MockResource} from '@/lib/types';
 import {BOOKING_STATUSES} from '@/lib/enums';
 import ClientPicker from './ClientPicker';
+import TagsField from '@/components/clients/TagsField';
 
 // Диалог посадки: startAt = дата + время прихода; endAt = время ухода (пусто —
 // до конца дня). После ухода/«Завершить посадку» стол свободен — на один стол
@@ -36,6 +37,10 @@ export default function TableBookingDialog({
   const initStart = init?.startAt ?? prefill?.startAt ?? new Date();
 
   const [clientId, setClientId] = useState(init?.clientId ?? '');
+  // Теги клиента: предзаполняются текущими, при сохранении брони пишутся в карточку.
+  const [tags, setTags] = useState(() =>
+    (clients.find((c) => c.id === (init?.clientId ?? ''))?.tags ?? []).join(', '),
+  );
   const [resourceId, setResourceId] = useState(init?.resourceId ?? prefill?.resourceId ?? resources[0]?.id ?? '');
   const [date, setDate] = useState(toLocalInput(initStart).slice(0, 10));
   const [time, setTime] = useState(init ? toLocalInput(init.startAt).slice(11, 16) : '19:00');
@@ -100,6 +105,7 @@ export default function TableBookingDialog({
         discountType: init?.discountType ?? 'NONE',
         discountValue: init?.discountValue ?? 0,
         comment: comment.trim() || undefined,
+        clientTags: tags.split(',').map((s) => s.trim()).filter(Boolean),
       });
       if (!res.ok) {
         if (res.error === 'OVERLAP') return setError(tb('occupied'));
@@ -176,7 +182,16 @@ export default function TableBookingDialog({
         </div>
 
         <div className="flex flex-col gap-3">
-          <ClientPicker clients={clients} value={clientId} initialName={initialClientName} onChange={setClientId} />
+          <ClientPicker clients={clients} value={clientId} initialName={initialClientName}
+            onChange={(id) => {
+              setClientId(id);
+              // Смена клиента → поле перезаполняется его тегами.
+              setTags((clients.find((c) => c.id === id)?.tags ?? []).join(', '));
+            }} />
+          <div className={dialogLabel}>
+            {tb('clientTags')}
+            <TagsField value={tags} onChange={setTags} />
+          </div>
 
           <label className={dialogLabel}>
             {tb('resource')}
