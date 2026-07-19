@@ -25,11 +25,14 @@ export default async function CalendarPage({
   // Окно выборки: неделя просматриваемого дня + сутки запаса, чтобы покрыть
   // «хвосты» ночных броней и продлённую сетку дня (до +32 ч за последний день недели).
   const ws = weekStart(viewDate);
-  const [resources, clients, bookings] = await Promise.all([
+  const [allResources, clients, bookings] = await Promise.all([
     getResources(),
     getClients(),
     getBookingsBetween(ws, addDays(ws, 8)),
   ]);
+  // Деактивированные («старые») столы в шахматке не показываем — история
+  // остаётся в БД, аналитике и журнале предоплат.
+  const resources = allResources.filter((r) => r.isActive);
 
   return (
     // На мобильном вычитаем высоту фикс. верхней полосы (h-12=3rem); на md+ — полный экран.
