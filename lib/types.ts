@@ -60,6 +60,20 @@ export interface MockUser {
   isActive: boolean;
 }
 
+// Строка журнала предоплат, внесённая вручную (без привязки к брони) — чистый
+// текст, без связей с клиентами/сотрудниками/столами. Видна только в «Предоплатах».
+export interface ArchivePrepayment {
+  id: string;
+  amount: number;
+  paymentMethod?: PaymentMethod;
+  guest: string;
+  resourceLabel: string;
+  paidAt: Date;
+  visitAt: Date;
+  note?: string;
+  manager?: string;
+}
+
 export interface MockBooking {
   id: string;
   resourceId: string;

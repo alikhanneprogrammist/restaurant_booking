@@ -1,22 +1,45 @@
 'use client';
 
-import {useMemo} from 'react';
+import {useMemo, useState} from 'react';
 import {useLocale, useTranslations} from 'next-intl';
 import {Link, useRouter} from '@/i18n/navigation';
 import {toAlmaty} from '@/lib/time';
-import type {MockBooking, MockClient, MockResource, MockUser} from '@/lib/types';
+import {clearBookingPrepayment, removeArchivePrepayment} from '@/lib/actions';
+import AddPrepaymentDialog from './AddPrepaymentDialog';
+import type {
+  ArchivePrepayment, BookingStatus, MockBooking, MockClient, MockResource, MockUser, PaymentMethod,
+} from '@/lib/types';
+
+// Единая строка журнала: бронь с предоплатой (ручной ввод) или строка архива
+// (разовый импорт из экселя — clientId нет, зал текстом как в экселе).
+type JournalRow = {
+  id: string;
+  amount: number;
+  method?: PaymentMethod;
+  guest: string;
+  clientId?: string;
+  resourceLabel: string;
+  paidAt?: Date | null;
+  visitAt: Date;
+  note?: string;
+  manager?: string;
+  status?: BookingStatus;
+  isArchive?: boolean; // строка журнала (архив/ручной ввод) — можно удалить админом
+};
 
 // Журнал предоплат — колонки один в один как в эксель-файле бухгалтерии:
 // Сумма п/о · Тип п/о · Имя гостя · VIP № · Дата оплаты · Дата посещения · Примечания · Ответственный.
 export default function PrepaymentsView({
-  bookings, resources, clients, users, year, month,
+  bookings, archive, resources, clients, users, year, month, isAdmin,
 }: {
   bookings: MockBooking[];
+  archive: ArchivePrepayment[];
   resources: MockResource[];
   clients: MockClient[];
   users: MockUser[];
   year: number;
   month: number; // 1–12
+  isAdmin: boolean;
 }) {
   const t = useTranslations('prepayments');
   const tpm = useTranslations('payment');
@@ -28,7 +51,42 @@ export default function PrepaymentsView({
   const resById = useMemo(() => new Map(resources.map((r) => [r.id, r])), [resources]);
   const userById = useMemo(() => new Map(users.map((u) => [u.id, u])), [users]);
 
-  const totalSum = bookings.reduce((s, b) => s + b.prepayment, 0);
+  const name = (r?: MockResource) => (r ? (locale === 'kk' ? r.nameKk : r.nameRu) : '—');
+
+  // Объединяем ручные предоплаты (брони) и архив, сортируем по дате оплаты.
+  const rows = useMemo<JournalRow[]>(() => {
+    const fromBookings = bookings.map<JournalRow>((b) => ({
+      id: b.id,
+      amount: b.prepayment,
+      method: b.paymentMethod,
+      guest: clientById.get(b.clientId)?.name ?? '—',
+      clientId: b.clientId,
+      resourceLabel: name(resById.get(b.resourceId)),
+      paidAt: b.prepaidAt,
+      visitAt: b.startAt,
+      note: b.comment,
+      manager: (b.createdById && userById.get(b.createdById)?.name) || undefined,
+      status: b.status,
+    }));
+    const fromArchive = archive.map<JournalRow>((a) => ({
+      id: a.id,
+      amount: a.amount,
+      method: a.paymentMethod,
+      guest: a.guest,
+      resourceLabel: a.resourceLabel || '—',
+      paidAt: a.paidAt,
+      visitAt: a.visitAt,
+      note: a.note,
+      manager: a.manager,
+      isArchive: true,
+    }));
+    return [...fromBookings, ...fromArchive].sort(
+      (a, b) => (a.paidAt?.getTime() ?? 0) - (b.paidAt?.getTime() ?? 0),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookings, archive, clientById, resById, userById, locale]);
+
+  const totalSum = rows.reduce((s, r) => s + r.amount, 0);
 
   const money = (n: number) => `${Math.round(n).toLocaleString(locale)} ₸`;
   const fmtDate = (d: Date) =>
@@ -43,26 +101,39 @@ export default function PrepaymentsView({
     router.replace(`/prepayments?m=${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   };
 
-  const name = (r?: MockResource) => (r ? (locale === 'kk' ? r.nameKk : r.nameRu) : '—');
+  const isCancelled = (r: JournalRow) => r.status === 'CANCELLED' || r.status === 'NO_SHOW';
+
+  const [showAdd, setShowAdd] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Удаление строки журнала (только ADMIN): архив/ручной ввод удаляется целиком,
+  // у строки-брони обнуляется предоплата (сама бронь остаётся в календаре).
+  async function removeRow(r: JournalRow) {
+    if (!window.confirm(r.isArchive ? t('deleteConfirm') : t('clearBookingConfirm'))) return;
+    setDeletingId(r.id);
+    try {
+      await (r.isArchive ? removeArchivePrepayment(r.id) : clearBookingPrepayment(r.id));
+      router.refresh();
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   // Выгрузка месяца в .xlsx — те же колонки, что и таблица (и эксель бухгалтерии).
   async function downloadXlsx() {
     const XLSX = await import('xlsx');
     const header = [t('amount'), t('type'), t('guest'), t('resource'), t('paidDate'), t('visitDate'), t('note'), t('manager')];
-    const rows = bookings.map((b) => {
-      const cancelled = b.status === 'CANCELLED' || b.status === 'NO_SHOW';
-      return [
-        Math.round(b.prepayment),
-        b.paymentMethod ? tpm(b.paymentMethod) : '—',
-        clientById.get(b.clientId)?.name ?? '—',
-        name(resById.get(b.resourceId)),
-        b.prepaidAt ? fmtDate(b.prepaidAt) : '—',
-        fmtDate(b.startAt),
-        [b.comment, cancelled ? `(${ts(b.status)})` : ''].filter(Boolean).join(' ') || '—',
-        (b.createdById && userById.get(b.createdById)?.name) || '—',
-      ];
-    });
-    const ws = XLSX.utils.aoa_to_sheet([header, ...rows, [Math.round(totalSum), t('monthTotal')]]);
+    const dataRows = rows.map((r) => [
+      Math.round(r.amount),
+      r.method ? tpm(r.method) : '—',
+      r.guest,
+      r.resourceLabel,
+      r.paidAt ? fmtDate(r.paidAt) : '—',
+      fmtDate(r.visitAt),
+      [r.note, isCancelled(r) ? `(${ts(r.status!)})` : ''].filter(Boolean).join(' ') || '—',
+      r.manager || '—',
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([header, ...dataRows, [Math.round(totalSum), t('monthTotal')]]);
     ws['!cols'] = header.map(() => ({wch: 18}));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, monthLabel);
@@ -84,6 +155,10 @@ export default function PrepaymentsView({
             className="ml-2 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-subtle">
             ⬇ {t('download')}
           </button>
+          <button onClick={() => setShowAdd(true)}
+            className="ml-1 rounded-md bg-primary px-2.5 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90">
+            + {t('add')}
+          </button>
         </div>
       </div>
 
@@ -95,11 +170,11 @@ export default function PrepaymentsView({
         </div>
         <div className="rounded-lg border border-border bg-card p-3">
           <div className="text-xs text-muted">{t('count')}</div>
-          <div className="mt-0.5 text-lg font-semibold">{bookings.length}</div>
+          <div className="mt-0.5 text-lg font-semibold">{rows.length}</div>
         </div>
       </div>
 
-      {bookings.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="mt-6 rounded-lg border border-border bg-card p-6 text-sm text-muted">{t('empty')}</div>
       ) : (
         <div className="mt-6 overflow-x-auto rounded-lg border border-border bg-card">
@@ -114,29 +189,36 @@ export default function PrepaymentsView({
                 <th className="px-3 py-2">{t('visitDate')}</th>
                 <th className="px-3 py-2">{t('note')}</th>
                 <th className="px-3 py-2">{t('manager')}</th>
+                {isAdmin && <th className="w-8 px-2 py-2" />}
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {bookings.map((b) => {
-                const client = clientById.get(b.clientId);
-                const cancelled = b.status === 'CANCELLED' || b.status === 'NO_SHOW';
+              {rows.map((r) => {
+                const cancelled = isCancelled(r);
                 return (
-                  <tr key={b.id} className={cancelled ? 'text-muted' : ''}>
-                    <td className="whitespace-nowrap px-3 py-2 font-medium">{money(b.prepayment)}</td>
-                    <td className="whitespace-nowrap px-3 py-2">{b.paymentMethod ? tpm(b.paymentMethod) : '—'}</td>
-                    <td className="max-w-40 truncate px-3 py-2">
-                      {client ? (
-                        <Link href={`/clients/${client.id}`} className="hover:underline">{client.name}</Link>
-                      ) : '—'}
+                  <tr key={r.id} className={cancelled ? 'text-muted' : ''}>
+                    <td className="whitespace-nowrap px-3 py-2 font-medium">{money(r.amount)}</td>
+                    <td className="whitespace-nowrap px-3 py-2">{r.method ? tpm(r.method) : '—'}</td>
+                    <td className="max-w-40 truncate px-3 py-2" title={r.guest}>
+                      {r.clientId && clientById.has(r.clientId) ? (
+                        <Link href={`/clients/${r.clientId}`} className="hover:underline">{r.guest}</Link>
+                      ) : r.guest}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2">{name(resById.get(b.resourceId))}</td>
-                    <td className="whitespace-nowrap px-3 py-2">{b.prepaidAt ? fmtDate(b.prepaidAt) : '—'}</td>
-                    <td className="whitespace-nowrap px-3 py-2">{fmtDate(b.startAt)}</td>
-                    <td className="max-w-48 truncate px-3 py-2" title={b.comment}>
-                      {b.comment || '—'}
-                      {cancelled && <span className="ml-1 text-xs">({ts(b.status)})</span>}
+                    <td className="max-w-32 truncate whitespace-nowrap px-3 py-2" title={r.resourceLabel}>{r.resourceLabel}</td>
+                    <td className="whitespace-nowrap px-3 py-2">{r.paidAt ? fmtDate(r.paidAt) : '—'}</td>
+                    <td className="whitespace-nowrap px-3 py-2">{fmtDate(r.visitAt)}</td>
+                    <td className="max-w-48 truncate px-3 py-2" title={r.note}>
+                      {r.note || '—'}
+                      {cancelled && <span className="ml-1 text-xs">({ts(r.status!)})</span>}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2">{(b.createdById && userById.get(b.createdById)?.name) || '—'}</td>
+                    <td className="whitespace-nowrap px-3 py-2">{r.manager || '—'}</td>
+                    {isAdmin && (
+                      <td className="px-2 py-2 text-center">
+                        <button onClick={() => removeRow(r)} disabled={deletingId === r.id}
+                          aria-label={t('deleteRow')} title={t('deleteRow')}
+                          className="text-muted hover:text-red-600 disabled:opacity-50">✕</button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -144,6 +226,8 @@ export default function PrepaymentsView({
           </table>
         </div>
       )}
+
+      {showAdd && <AddPrepaymentDialog resources={resources} onClose={() => setShowAdd(false)} />}
     </div>
   );
 }

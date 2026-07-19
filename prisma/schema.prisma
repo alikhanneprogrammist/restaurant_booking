@@ -209,6 +209,25 @@ model Booking {
   @@index([prepaidAt])
 }
 
+// ───────────────────────── PrepaymentArchive — журнал предоплат ────────
+// Строки журнала «Предоплаты», внесённые вручную (без привязки к брони):
+// чистый текст без связей с Client/User/Resource — видны ТОЛЬКО во вкладке
+// «Предоплаты», в аналитику/клиентов/календарь не попадают.
+
+model PrepaymentArchive {
+  id            String         @id @default(cuid())
+  amount        Int
+  paymentMethod PaymentMethod? // способ оплаты; null — не задан
+  guest         String // имя гостя, текстом
+  resourceLabel String // стол/зал, текстом
+  paidAt        DateTime       @db.Timestamptz(6) // дата оплаты
+  visitAt       DateTime       @db.Timestamptz(6) // дата посещения
+  note          String?
+  manager       String? // ответственный, текстом
+
+  @@index([paidAt])
+}
+
 // ───────────────────────── Settings — настройки заведения ──────────────
 // Одна строка (singleton, id = "singleton"): общие данные заведения и
 // редактируемые тексты публичной страницы заявок /book. Меняется в админке

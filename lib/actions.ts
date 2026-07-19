@@ -421,3 +421,84 @@ export async function saveSettings(input: Partial<AppSettings>) {
   refresh();
   return {ok: true as const};
 }
+
+// ───────────────────────── Журнал предоплат (ручной ввод) ──────────────
+// Строки пишутся в PrepaymentArchive: видны только во вкладке «Предоплаты»,
+// в аналитику/клиентов/календарь не попадают.
+
+const PREPAY_METHODS = ['KASPI', 'CASH', 'BANK', 'CASH_KASPI'] as const;
+
+export interface ArchivePrepaymentInput {
+  amount: number;
+  guest: string;
+  resourceLabel: string;
+  paidAt: Date;
+  visitAt: Date;
+  paymentMethod?: string | null;
+  note?: string;
+}
+
+/** Ручная строка журнала предоплат — доступно всем сотрудникам. */
+export async function addArchivePrepayment(input: ArchivePrepaymentInput) {
+  const user = await currentUser();
+  if (!user) return {ok: false as const, error: 'FORBIDDEN' as const};
+
+  const amount = Math.round(Number(input.amount));
+  const guest = (input.guest ?? '').trim();
+  const resourceLabel = (input.resourceLabel ?? '').trim();
+  const paidAt = new Date(input.paidAt);
+  const visitAt = new Date(input.visitAt);
+  if (
+    !Number.isFinite(amount) || amount <= 0 || !guest || !resourceLabel ||
+    Number.isNaN(paidAt.getTime()) || Number.isNaN(visitAt.getTime())
+  ) {
+    return {ok: false as const, error: 'INVALID' as const};
+  }
+
+  await prisma.prepaymentArchive.create({
+    data: {
+      amount,
+      guest,
+      resourceLabel,
+      paidAt,
+      visitAt,
+      paymentMethod: PREPAY_METHODS.find((m) => m === input.paymentMethod) ?? null,
+      note: (input.note ?? '').trim() || null,
+      manager: user.name ?? null, // ответственный — кто внёс
+    },
+  });
+  refresh();
+  return {ok: true as const};
+}
+
+/** Удаление ошибочной строки журнала — только ADMIN. */
+export async function removeArchivePrepayment(id: string) {
+  await requireAdmin();
+  await prisma.prepaymentArchive.delete({where: {id}});
+  refresh();
+  return {ok: true as const};
+}
+
+/**
+ * Убрать предоплату из брони (строка журнала «Предоплаты» из брони) — только ADMIN.
+ * Бронь остаётся, обнуляются prepayment/prepaidAt (строка уходит и из аналитики);
+ * изменение пишется в журнал аудита брони.
+ */
+export async function clearBookingPrepayment(id: string) {
+  const user = await requireAdmin();
+  const b = await prisma.booking.findUnique({where: {id}, select: {prepayment: true}});
+  if (!b) return {ok: false as const, error: 'NOT_FOUND' as const};
+  await prisma.$transaction([
+    prisma.booking.update({where: {id}, data: {prepayment: 0, prepaidAt: null}}),
+    prisma.bookingAudit.create({
+      data: {
+        bookingId: id,
+        userId: user.id!,
+        action: 'UPDATE',
+        changes: [{field: 'prepayment', from: Number(b.prepayment), to: 0}],
+      },
+    }),
+  ]);
+  refresh();
+  return {ok: true as const};
+}

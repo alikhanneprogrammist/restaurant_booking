@@ -1,6 +1,6 @@
 import {prisma} from './db';
 import type {
-  MockResource, MockAddon, MockClient, MockUser, MockBooking,
+  MockResource, MockAddon, MockClient, MockUser, MockBooking, ArchivePrepayment,
 } from './types';
 import {DEFAULT_SETTINGS, SETTINGS_ID, type AppSettings} from './settings';
 
@@ -156,6 +156,25 @@ export async function getBookingsPrepaidBetween(from: Date, to: Date): Promise<M
     orderBy: {prepaidAt: 'asc'},
   });
   return rows.map(toBooking);
+}
+
+/** Журнал предоплат (ручные строки) за окно [from, to) по дате оплаты — только для вкладки «Предоплаты». */
+export async function getArchivePrepaymentsBetween(from: Date, to: Date): Promise<ArchivePrepayment[]> {
+  const rows = await prisma.prepaymentArchive.findMany({
+    where: {paidAt: {gte: from, lt: to}},
+    orderBy: {paidAt: 'asc'},
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    amount: r.amount,
+    paymentMethod: r.paymentMethod ?? undefined,
+    guest: r.guest,
+    resourceLabel: r.resourceLabel,
+    paidAt: r.paidAt,
+    visitAt: r.visitAt,
+    note: r.note ?? undefined,
+    manager: r.manager ?? undefined,
+  }));
 }
 
 /** Число визитов (без отменённых) по клиентам — счётчик для списка клиентов. */
